@@ -31,8 +31,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const handleManualSync = async () => {
     setIsSyncing(true);
-    await syncManager.syncNow();
+    const res = await syncManager.syncNow();
     setIsSyncing(false);
+    alert(res.message);
   };
 
   return (

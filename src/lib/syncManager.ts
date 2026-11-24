@@ -1,6 +1,6 @@
 import { db } from './db';
 import { supabase, isSupabaseConfigured } from './supabase';
-import type { Task } from '../types';
+import type { Task, Profile } from '../types';
 
 export class SyncManager {
   private static instance: SyncManager;
@@ -46,10 +46,8 @@ export class SyncManager {
    * Menyimpan task baru (Offline-First)
    */
   public async saveTask(task: Task, isNew = false): Promise<void> {
-    // 1. Simpan ke database lokal IndexedDB terlebih dahulu (Instan di HP)
     await db.tasks.put(task);
 
-    // 2. Tambahkan ke antrean sinkronisasi
     await db.syncQueue.put({
       id: crypto.randomUUID(),
       task_id: task.id,
@@ -60,7 +58,6 @@ export class SyncManager {
 
     await this.notifyListeners();
 
-    // 3. Jika sedang online dan Supabase aktif, langsung coba sinkronkan
     if (navigator.onLine && isSupabaseConfigured) {
       this.syncNow();
     }
@@ -98,18 +95,57 @@ export class SyncManager {
   }
 
   /**
-   * Proses Sinkronisasi 2 Arah (Upload queue lokal & Tarik update dari cloud)
+   * Simpan profil ke lokal dan upload ke Supabase
+   */
+  public async saveProfile(profile: Profile): Promise<void> {
+    await db.profiles.put(profile);
+    if (navigator.onLine && isSupabaseConfigured && supabase) {
+      try {
+        const { error } = await supabase.from('profiles').upsert(profile);
+        if (error) console.error('Gagal upload profile ke Supabase:', error);
+      } catch (e) {
+        console.error('Error saveProfile Supabase:', e);
+      }
+    }
+  }
+
+  /**
+   * Proses Sinkronisasi 2 Arah (Tasks + Profiles)
    */
   public async syncNow(): Promise<{ success: boolean; message: string }> {
     if (this.isSyncing) return { success: false, message: 'Sync sedang berjalan' };
     if (!navigator.onLine) return { success: false, message: 'Koneksi offline' };
     if (!isSupabaseConfigured || !supabase) {
-      return { success: false, message: 'Supabase URL/Key belum dikonfigurasi (Mode Lokal Aktif)' };
+      return { success: false, message: 'Supabase URL/Key belum diset di Vercel (Mode Lokal Aktif)' };
     }
 
     this.isSyncing = true;
     try {
-      // 1. Flush antrean lokal ke Supabase
+      // ============================================
+      // 1. SINKRONISASI ANGGOTA TIM (PROFILES)
+      // ============================================
+      // Tarik profil dari Supabase Cloud ke HP / PC
+      const { data: cloudProfiles, error: profileErr } = await supabase
+        .from('profiles')
+        .select('*');
+
+      if (!profileErr && cloudProfiles && cloudProfiles.length > 0) {
+        for (const p of cloudProfiles) {
+          await db.profiles.put(p);
+        }
+      } else if (profileErr) {
+        console.warn('Gagal tarik profiles dari Supabase:', profileErr.message);
+      } else if (cloudProfiles && cloudProfiles.length === 0) {
+        // Jika cloud profiles masih kosong, upload profil lokal ke cloud!
+        const localProfiles = await db.profiles.toArray();
+        if (localProfiles.length > 0) {
+          await supabase.from('profiles').upsert(localProfiles);
+        }
+      }
+
+      // ============================================
+      // 2. FLUSH ANTREAN TASK LOKAL KE SUPABASE
+      // ============================================
       const queueItems = await db.syncQueue.toArray();
 
       for (const item of queueItems) {
@@ -131,6 +167,8 @@ export class SyncManager {
           if (!error) {
             await db.tasks.update(item.task_id, { is_synced: true });
             await db.syncQueue.delete(item.id);
+          } else {
+            console.error('Error upsert task ke Supabase:', error.message);
           }
         } else if (item.action === 'STATUS_CHANGE') {
           const { error } = await supabase
@@ -145,19 +183,21 @@ export class SyncManager {
           if (!error) {
             await db.tasks.update(item.task_id, { is_synced: true });
             await db.syncQueue.delete(item.id);
+          } else {
+            console.error('Error status update ke Supabase:', error.message);
           }
         }
       }
 
-      // 2. Tarik update terbaru dari Supabase ke lokal IndexedDB
-      const { data: cloudTasks, error: pullError } = await supabase
+      // ============================================
+      // 3. TARIK UPDATE TERBARU TASK DARI SUPABASE
+      // ============================================
+      const { data: cloudTasks, error: taskPullErr } = await supabase
         .from('tasks')
         .select('*');
 
-      if (!pullError && cloudTasks) {
+      if (!taskPullErr && cloudTasks) {
         for (const t of cloudTasks) {
-          const local = await db.tasks.get(t.id);
-          // Jika tidak ada konflik antrean lokal, update data lokal
           const hasPendingQueue = queueItems.some(q => q.task_id === t.id);
           if (!hasPendingQueue) {
             await db.tasks.put({
@@ -169,7 +209,7 @@ export class SyncManager {
       }
 
       await this.notifyListeners();
-      return { success: true, message: 'Sinkronisasi berhasil!' };
+      return { success: true, message: 'Sinkronisasi cloud berhasil!' };
     } catch (err: any) {
       console.error('Gagal sync:', err);
       return { success: false, message: err?.message || 'Gagal sinkronisasi' };

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, seedInitialProfilesIfEmpty } from './lib/db';
 import { syncManager } from './lib/syncManager';
+import { isSupabaseConfigured } from './lib/supabase';
 import type { Task, Profile, TaskStatus, TaskPriority } from './types';
 import { Navbar } from './components/Navbar';
 import { EvaluationSummary } from './components/EvaluationSummary';
@@ -43,6 +44,11 @@ export function App() {
   // Inisialisasi awal & Cek Sesi Login Offline
   useEffect(() => {
     seedInitialProfilesIfEmpty().then(async () => {
+      // Otomatis tarik & sinkron data terbaru dari Supabase saat aplikasi dibuka
+      if (navigator.onLine && isSupabaseConfigured) {
+        syncManager.syncNow().catch((err) => console.warn('Auto-sync init error:', err));
+      }
+
       const allProfiles = await db.profiles.toArray();
       const savedUserId = localStorage.getItem('opdis_logged_in_user_id');
       if (savedUserId) {
