@@ -8,6 +8,8 @@ import { EvaluationSummary } from './components/EvaluationSummary';
 import { TaskCard } from './components/TaskCard';
 import { TaskModal } from './components/TaskModal';
 import { TaskDetailModal } from './components/TaskDetailModal';
+import { TeamManagementModal } from './components/TeamManagementModal';
+import { LoginModal } from './components/LoginModal';
 import { 
   Plus, 
   Search, 
@@ -25,6 +27,8 @@ export function App() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
 
   // Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -36,16 +40,35 @@ export function App() {
   const tasks = useLiveQuery(() => db.tasks.orderBy('updated_at').reverse().toArray()) || [];
   const profiles = useLiveQuery(() => db.profiles.toArray()) || [];
 
-  // Inisialisasi awal
+  // Inisialisasi awal & Cek Sesi Login Offline
   useEffect(() => {
     seedInitialProfilesIfEmpty().then(async () => {
       const allProfiles = await db.profiles.toArray();
-      if (allProfiles.length > 0 && !currentProfile) {
-        // Default login sebagai Ahmad Fauzi (Sect Head) atau Trainer Budi
-        setCurrentProfile(allProfiles[0]);
+      const savedUserId = localStorage.getItem('opdis_logged_in_user_id');
+      if (savedUserId) {
+        const found = allProfiles.find(p => p.id === savedUserId);
+        if (found) {
+          setCurrentProfile(found);
+          setIsLoginModalOpen(false);
+          return;
+        }
       }
+      // Jika belum login, buka modal login PIN
+      setIsLoginModalOpen(true);
     });
   }, []);
+
+  const handleLoginSuccess = (profile: Profile) => {
+    localStorage.setItem('opdis_logged_in_user_id', profile.id);
+    setCurrentProfile(profile);
+    setIsLoginModalOpen(false);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('opdis_logged_in_user_id');
+    setCurrentProfile(null);
+    setIsLoginModalOpen(true);
+  };
 
   // Filter Logic
   const filteredTasks = tasks.filter(task => {
@@ -99,7 +122,8 @@ export function App() {
       <Navbar
         currentProfile={currentProfile}
         profiles={profiles}
-        onSelectProfile={setCurrentProfile}
+        onOpenTeamModal={() => setIsTeamModalOpen(true)}
+        onLogout={handleLogout}
       />
 
       {/* Main Container */}
@@ -180,14 +204,16 @@ export function App() {
               ))}
             </select>
 
-            {/* Tombol Buat Task (Desktop) */}
-            <button
-              onClick={() => setIsCreateModalOpen(true)}
-              className="hidden sm:inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-brand-700 hover:bg-brand-800 text-white font-bold transition shadow-sm"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Buat Task</span>
-            </button>
+            {/* Tombol Buat Task (Desktop - Tidak muncul untuk Observer) */}
+            {currentProfile?.role !== 'observer' && (
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
+                className="hidden sm:inline-flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-brand-700 hover:bg-brand-800 text-white font-bold transition shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Buat Task</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -219,14 +245,16 @@ export function App() {
         )}
       </main>
 
-      {/* Floating Action Button (+) Khusus Mobile iPhone/Android */}
-      <button
-        onClick={() => setIsCreateModalOpen(true)}
-        className="sm:hidden fixed right-5 bottom-6 z-30 w-14 h-14 bg-brand-700 hover:bg-brand-800 text-white rounded-full shadow-lg shadow-brand-900/40 flex items-center justify-center font-bold transition-transform active:scale-95"
-        title="Buat Task Baru"
-      >
-        <Plus className="w-7 h-7" />
-      </button>
+      {/* Floating Action Button (+) Khusus Mobile iPhone/Android (Kecuali Observer) */}
+      {currentProfile?.role !== 'observer' && (
+        <button
+          onClick={() => setIsCreateModalOpen(true)}
+          className="sm:hidden fixed right-5 bottom-6 z-30 w-14 h-14 bg-brand-700 hover:bg-brand-800 text-white rounded-full shadow-lg shadow-brand-900/40 flex items-center justify-center font-bold transition-transform active:scale-95"
+          title="Buat Task Baru"
+        >
+          <Plus className="w-7 h-7" />
+        </button>
+      )}
 
       {/* Modal Buat Task */}
       <TaskModal
@@ -248,6 +276,27 @@ export function App() {
         profiles={profiles}
         currentProfile={currentProfile}
         onUpdateStatusAndNotes={handleUpdateStatusAndNotes}
+      />
+
+      {/* Modal Manajemen Tim & Anggota OPD (Admin) */}
+      <TeamManagementModal
+        isOpen={isTeamModalOpen}
+        onClose={() => setIsTeamModalOpen(false)}
+        profiles={profiles}
+        currentProfile={currentProfile}
+        onProfileUpdated={async () => {
+          const allProfiles = await db.profiles.toArray();
+          if (allProfiles.length > 0 && (!currentProfile || !allProfiles.some(p => p.id === currentProfile.id))) {
+            setCurrentProfile(allProfiles[0]);
+          }
+        }}
+      />
+
+      {/* Modal Login Autentikasi PIN Cepat (Offline-Ready) */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        profiles={profiles}
+        onLoginSuccess={handleLoginSuccess}
       />
     </div>
   );

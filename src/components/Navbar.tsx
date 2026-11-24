@@ -1,19 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { syncManager } from '../lib/syncManager';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { Wifi, WifiOff, RefreshCw, HardHat, UserCheck } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCw, HardHat, UserCheck, Users, LogOut, Shield } from 'lucide-react';
 import type { Profile } from '../types';
 
 interface NavbarProps {
   currentProfile: Profile | null;
   profiles: Profile[];
-  onSelectProfile: (profile: Profile) => void;
+  onOpenTeamModal: () => void;
+  onLogout: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   currentProfile,
   profiles,
-  onSelectProfile
+  onOpenTeamModal,
+  onLogout
 }) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [unsyncedCount, setUnsyncedCount] = useState(0);
@@ -86,24 +88,43 @@ export const Navbar: React.FC<NavbarProps> = ({
             />
           </button>
 
-          {/* User Role Switcher (Simulasi hak akses PRD: Admin, Sect Head, Trainer) */}
-          <div className="flex items-center space-x-1.5 bg-brand-900/80 px-2.5 py-1.5 rounded-lg border border-brand-700">
-            <UserCheck className="w-4 h-4 text-amber-400" />
-            <select
-              value={currentProfile?.id || ''}
-              onChange={(e) => {
-                const found = profiles.find(p => p.id === e.target.value);
-                if (found) onSelectProfile(found);
-              }}
-              className="bg-transparent text-xs text-slate-100 font-medium focus:outline-none cursor-pointer max-w-[130px] sm:max-w-none"
+          {/* Informasi Pengguna Terverifikasi (PIN-Authenticated RBAC) */}
+          {currentProfile && (
+            <div className="flex items-center space-x-2 bg-brand-900/90 pl-2.5 pr-2 py-1.5 rounded-xl border border-brand-700/80">
+              <div className="w-6 h-6 rounded-lg bg-amber-500 text-brand-950 font-black text-xs flex items-center justify-center shrink-0">
+                {currentProfile.name.charAt(0)}
+              </div>
+              <div className="hidden sm:block text-left">
+                <span className="block text-xs font-bold leading-tight truncate max-w-[120px]">
+                  {currentProfile.name}
+                </span>
+                <span className="text-[10px] text-amber-300 uppercase font-semibold">
+                  {currentProfile.role.replace('_', ' ')}
+                </span>
+              </div>
+
+              {/* Tombol Logout / Ganti Akun */}
+              <button
+                onClick={onLogout}
+                title="Keluar / Ganti Akun (PIN)"
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-brand-800 transition ml-1"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Tombol Bagian Admin / Kelola Tim OPD (Hanya muncul untuk Admin & Sect Head!) */}
+          {(currentProfile?.role === 'admin' || currentProfile?.role === 'sect_head') && (
+            <button
+              onClick={onOpenTeamModal}
+              title="Kelola & Ganti Nama Anggota Tim OPD"
+              className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-brand-950 font-bold text-xs transition shadow-sm"
             >
-              {profiles.map(p => (
-                <option key={p.id} value={p.id} className="text-slate-900">
-                  {p.name} ({p.role.toUpperCase()})
-                </option>
-              ))}
-            </select>
-          </div>
+              <Users className="w-4 h-4" />
+              <span className="hidden sm:inline">Kelola Tim</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

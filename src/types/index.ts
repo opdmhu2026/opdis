@@ -7,9 +7,11 @@ export type TaskPriority = 'high' | 'medium' | 'low';
 export interface Profile {
   id: string;
   name: string;
+  nik?: string;
   email: string;
   role: UserRole;
   department: string;
+  pin?: string; // 4 digit PIN untuk login offline cepat di site
 }
 
 export interface TaskAttachment {
